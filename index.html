@@ -46,29 +46,11 @@
   <div id="loading"><div class="brand small">ALDREN</div><span id="loading-text">Preparando las brasas…</span><div class="load-bar"><i id="loading-progress"></i></div></div>
 </div>
 <script>window.__ALDREN_ASSETS__={};</script>
-<script src="packs/01.js"></script>
-<script src="packs/02.js"></script>
-<script src="packs/03.js"></script>
-<script src="packs/04.js"></script>
-<script src="packs/05.js"></script>
-<script src="packs/06.js"></script>
-<script src="packs/07.js"></script>
-<script src="packs/08.js"></script>
-<script src="packs/09.js"></script>
-<script src="packs/10.js"></script>
-<script src="packs/11.js"></script>
-<script src="packs/12.js"></script>
-<script src="packs/13.js"></script>
-<script src="packs/14.js"></script>
-<script src="packs/15.js"></script>
-<script src="packs/16.js"></script>
-<script src="packs/17.js"></script>
-<script src="packs/18.js"></script>
+
 <script>
 function __patchAssetImages(root){if(root?.matches?.('img[src^="assets/"]'))root.src=window.__ALDREN_ASSETS__[root.getAttribute('src')]||root.src;
 for(let x of root?.querySelectorAll?.('img[src^="assets/"]')||[])x.src=window.__ALDREN_ASSETS__[x.getAttribute('src')]||x.src;}
 new MutationObserver(records=>{for(let r of records){if(r.type==='attributes')__patchAssetImages(r.target);else for(let n of r.addedNodes)if(n.nodeType===1)__patchAssetImages(n)}}).observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['src']});
-__patchAssetImages(document);
 </script>
 <script>/* ALDREN WEB · adaptación jugable a Canvas 2D de los recursos originales de Aldren v2.8.
    Esta versión NO es un export directo del proyecto Godot. Funciona localmente sin servidor. */
@@ -279,12 +261,35 @@ $('#overlay-content').addEventListener('click',ev=>{let el=ev.target.closest('bu
 $('#overlay-content').addEventListener('input',ev=>{if(ev.target.id==='music-volume'){settings.music=+ev.target.value/100;if(sound.music)sound.music.volume=settings.music*.6;saveSettings()}else if(ev.target.id==='sfx-volume'){settings.sfx=+ev.target.value/100;saveSettings()}});
 for(let el of document.querySelectorAll('[data-dir]')){let key={up:'w',down:'s',left:'a',right:'d'}[el.dataset.dir];el.addEventListener('pointerdown',e=>{e.preventDefault();pressed.add(key);el.setPointerCapture(e.pointerId)});for(let ev of ['pointerup','pointercancel','lostpointercapture'])el.addEventListener(ev,()=>pressed.delete(key))}
 $('#mob-attack').onpointerdown=e=>{e.preventDefault();attack()};$('#mob-dodge').onpointerdown=e=>{e.preventDefault();dodge()};$('#mob-interact').onpointerdown=e=>{e.preventDefault();interact()};$('#mob-potion').onpointerdown=e=>{e.preventDefault();useItem('potion')};
-async function boot(){// Important for file://: all visuals use image URLs rather than fetch().
+async function loadAssetPacks(){
+ const total=18;
+ let completed=0;
+ let failed=false;
+ const updateProgress=()=>{
+  $('#loading-text').textContent=`Cargando recursos… ${completed} de ${total}`;
+  $('#loading-progress').style.width=(completed/total*90)+'%';
+ };
+ updateProgress();
+ await Promise.all(Array.from({length:total},(_,index)=>new Promise((resolve,reject)=>{
+  const script=document.createElement('script');
+  script.async=false;
+  script.src='packs/'+String(index+1).padStart(2,'0')+'.js';
+  const timeout=setTimeout(()=>reject(new Error('Tiempo de espera agotado: '+script.src)),90000);
+  script.onload=()=>{clearTimeout(timeout);completed++;if(!failed)updateProgress();resolve()};
+  script.onerror=()=>{clearTimeout(timeout);reject(new Error('No se pudo cargar '+script.src))};
+  document.head.appendChild(script);
+ }))).catch(error=>{failed=true;throw error});
+ __patchAssetImages(document);
+}
+async function boot(){
+ await loadAssetPacks();
+ $('#loading-text').textContent='Preparando la partida…';
+// Important for file://: all visuals use image URLs rather than fetch().
  let critical=['art/ui/portada_castillo_v10.png','art/aldren_v23/idle_down_00.png','art/village/grass0.png','art/village/path0.png','art/tiles_hd/floor_0.png','art/actors_hd/skeleton_sword_down_0.png','art/ui/portrait.png'];let loaded=0;
- await Promise.all(critical.map(p=>new Promise(res=>{let im=image(p);const ready=()=>{loaded++;$('#loading-progress').style.width=(loaded/critical.length*100)+'%';res()};if(im.complete)ready();else{im.onload=ready;im.onerror=ready}})));
+ await Promise.all(critical.map(p=>new Promise(res=>{let im=image(p);const ready=()=>{loaded++;$('#loading-progress').style.width=(90+loaded/critical.length*10)+'%';res()};if(im.complete)ready();else{im.onload=ready;im.onerror=ready}})));
  if(readData('aldren_web_save')){$('#continue-game').disabled=false}else{$('#continue-game').disabled=true;$('#continue-game').title='Inicia primero una aventura'}
  show('#loading',false);loading=false;playMusic('menu');requestAnimationFrame(tick)}
-boot().catch(e=>{console.error(e);$('#loading-text').textContent='No se pudieron cargar los recursos. Abre el archivo index.html desde su carpeta.'});
+boot().catch(e=>{console.error(e);$('#loading-text').textContent='No se pudieron cargar todos los recursos.';const retry=document.createElement('button');retry.className='main-button';retry.textContent='Reintentar';retry.onclick=()=>location.reload();$('#loading').appendChild(retry)});
 })();
 </script>
 </body></html>
