@@ -63,7 +63,126 @@ const d2=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y), unit=(x,y)=>{let n=Math.hypot(x,y);
 const assetURL=p=>window.__ALDREN_ASSETS__?.[p]||p;
 const images=new Map();
 function image(path){const full='assets/'+path;if(images.has(full))return images.get(full);let img=new Image();img.src=assetURL(full);images.set(full,img);return img}
-function draw(path,x,y,w,h,alpha=1){let im=image(path);if(!im.complete||!im.naturalWidth)return false;ctx.globalAlpha=alpha;ctx.drawImage(im,Math.round(x),Math.round(y),Math.round(w||im.width),Math.round(h||im.height));ctx.globalAlpha=1;return true}
+// Character palettes and equipment are drawn once per animation frame.
+const characterFrames = new WeakMap();
+const characterDesigns = {
+ aldren: ['#6b2336','#bb4652','#ef976e','#f5d9a4','plume',.49,.12,.56],
+ liora: ['#55334e','#a75a83','#e69d8b','#ffe8aa','lantern',.78,.43,.72],
+ mercader: ['#573320','#a86138','#eaa954','#ffe4a1','satchel',.24,.53,.8],
+ herrero: ['#453b46','#827688','#b7c3c8','#fff0c8','hammer',.77,.52,.86],
+ velan: ['#223e50','#357084','#8bbdb9','#f1dbaf','standard',.18,.32,.78],
+ mara: ['#293c39','#4c795c','#90ae75','#f2d391','sprig',.73,.29,.72],
+ skeleton: ['#56423c','#9d8061','#cfb58e','#fff0bc','buckler',.23,.51,.83],
+ archer: ['#403348','#765168','#b88e76','#e8daa6','quiver',.77,.28,.8],
+ knight: ['#3d354c','#716282','#aaa1b5','#edbb78','pauldron',.27,.40,1.05],
+ rootbound: ['#463831','#896440','#af995a','#eebc70','sprig',.30,.37,.85],
+ wraith: ['#26354d','#485879','#8297ba','#c4e6e9','veil',.50,.37,.60],
+ root_elite: ['#3b3e31','#697d46','#b4bd70','#e9d593','antlers',.50,.22,.92],
+ shade_elite: ['#283445','#386e82','#66c7d1','#d4fff0','halo',.50,.27,.94],
+ boss: ['#49314d','#86608c','#d49b5e','#ffe8a5','crown',.50,.14,1.10],
+ heartwood: ['#283e3c','#477467','#8ac3a2','#beffdc','antlers',.50,.19,1.25]
+};
+// Each mark is an original pixel pattern, from outline (1) to highlight (4).
+const equipmentPixels = {
+ plume:['......111111','....11223321','...1224331..','..122331....','.12231......','.131........'],
+ lantern:['...111...','..13.31..','..1...1..','.1111111.','.1233321.','.1344431.','.1343431.','.1233321.','..11111..','....3....'],
+ satchel:['..11...11..','..13...21..','.111111111.','12233333221','12322222321','12221412221','12223432221','.122222221.','..1111111..'],
+ hammer:['..111111111','..134433321','..133322221','..111231111','.....131...','.....131...','.....121...','.....121...','.....11....'],
+ standard:['..4........','..31.......','..31111111.','..313333321','..312243321','..312343221','..3122221..','..31.121...','..31..1....','..31.......','..21.......','..21.......'],
+ sprig:['......31...','..3...13.34','..31..13.31','.1341.1331.','...13131...','....131..34','.....13131.','.....13....','......21...'],
+ buckler:['...11111...','.113333311.','13322222331','13222122231','13221312231','13213431231','13221312231','.132212231.','..1322231..','...13331...','....111....'],
+ quiver:['.4..4..4.','31.31.31.','.3..3..3.','..3111111','..1333321','...132221','...122221','....12221','.....111.'],
+ pauldron:['....411....','...131..31.','.113311131.','12333333331','13222222221','12233333221','.122222221.','..1111111..'],
+ veil:['1.......1','13.....31','.13...31.','..13.31..','...141...','....3....'],
+ antlers:['3...............3','31..3.......3..13','.31.31.....13.13.','.13131.....13131.','..1331.....1331..','...131.3.3.131...','....1313.3131....','.....131.131.....','......31.13......'],
+ halo:['....34443....','..33.....33..','.3.........3.','3...........3','.3.........3.','..33.....33..','....33333....'],
+ crown:['4.....4.....4','31...343...13','131..131..131','1331133311331','.13233333231.','.13332423331.','.12333333321.','..111111111..']
+};
+function characterFrame(path, original) {
+ if(characterFrames.has(original)) return characterFrames.get(original);
+ const npc=path.match(/village\/npc_([a-z]+)(?:_\d+)?\.png$/);
+ const enemy=path.match(/actors_hd\/(\w+)_sword_(up|down|side)_(\d+)\.png$/);
+ const hero=path.includes('/aldren_v23');
+ const design=characterDesigns[hero?'aldren':npc?.[1]||enemy?.[1]];
+ if(!design){characterFrames.set(original,original);return original}
+ const frame=document.createElement('canvas');
+ frame.width=original.naturalWidth;frame.height=original.naturalHeight;
+ const brush=frame.getContext('2d');
+ brush.drawImage(original,0,0);
+ const pixels=brush.getImageData(0,0,frame.width,frame.height),data=pixels.data;
+ const colors=design.slice(0,4).map(color=>[1,3,5].map(i=>parseInt(color.slice(i,i+2),16)));
+ for(let i=0;i<data.length;i+=4){
+  if(!data[i+3])continue;
+  const light=(data[i]*.30+data[i+1]*.57+data[i+2]*.13)/255;
+  const tone=colors[Math.min(3,Math.floor(light*4))];
+  for(let c=0;c<3;c++)data[i+c]=Math.min(255,data[i+c]*(light<.35?.68:.77)+tone[c]*(light<.35?.19:.34));
+ }
+ brush.putImageData(pixels,0,0);
+ if(npc){
+  const outfits={
+   liora:['..433334..','.22333222.','..234432..','..222322..','..232232..','.23222232.','.32222223.','1332332331'],
+   mercader:['.3433334..','..233322..','..332222..','..232233..','..223332..','..344443..','..232232..','.13222231.'],
+   herrero:['..31..13..','..232232..','..133331..','..122321..','..122221..','..132231..','..132231..','..123321..'],
+   velan:['.33344333.','..223322..','..223322..','..222322..','..222322..','..334433..','.12223221.','.13333331.'],
+   mara:['.12333321.','.22343222.','..223322..','..232322..','..232232..','.23223221.','.32232221.','1311311311']
+  };
+  const drift=Number(path.match(/_(\d+)\.png$/)?.[1]||0)%2;
+  outfits[npc[1]].forEach((row,y)=>Array.from(row).forEach((digit,x)=>{
+   if(digit!=='.'){brush.fillStyle=design[Number(digit)-1];brush.fillRect(14+2*x,34+drift+2*y,2,2)}
+  }));
+ }
+ // Keep equipment on standing poses. Fallen and rolling bodies retain their own silhouette.
+ const standing=!/death|dodge/.test(path) && !(enemy&&Number(enemy[3])===(['boss','heartwood'].includes(enemy[1])?6:11));
+ if(standing){
+  const rows=equipmentPixels[design[4]],unit=Math.max(1,Math.round(frame.height*design[7]/55));
+  const yFraction=design[6];
+  // Follow vertical motion of the head across idle, walking and attack frames.
+  let top=frame.height;
+  for(let y=0;y<frame.height&&top===frame.height;y++)
+   for(let x=Math.floor(frame.width*.39);x<frame.width*.61;x++)
+    if(data[(y*frame.width+x)*4+3]>180){top=y;break}
+  const topMargin=hero ? .10 : (npc?.[1]==='mara' ? .06 : .02);
+  const centerY=npc||hero?top+frame.height*(yFraction-topMargin):frame.height*yFraction;
+  const flip=hero&&path.includes('_left_');
+  const left=Math.round(frame.width*(flip?1-design[5]:design[5])-rows[0].length*unit/2);
+  const upper=Math.round(centerY-rows.length*unit/2);
+  rows.forEach((row,y)=>Array.from(row).forEach((digit,x)=>{
+   if(digit==='.'){return}
+   brush.fillStyle=design[Number(digit)-1];
+   brush.fillRect(left+(flip?row.length-1-x:x)*unit,upper+y*unit,unit,unit);
+  }));
+ }
+ characterFrames.set(original,frame);
+ return frame;
+}
+function drawAttackWarnings(s){
+ for(const e of s.enemies){
+  if(!e.alive||e.wind<=0)continue;
+  const x=e.x-cp.x,y=e.y-cp.y;
+  ctx.save();
+  const tint=e.kind==='heartwood'?'145,255,202':e.kind==='boss'?'227,151,255':'255,197,115';
+  ctx.strokeStyle='rgba('+tint+',.95)';ctx.fillStyle='rgba('+tint+',.16)';ctx.lineWidth=2;
+  if(e.tele){
+   const cx=e.tele.x-cp.x,cy=e.tele.y-cp.y,r=e.tele.range;
+   if(e.tele.kind==='cross'){
+    ctx.fillRect(cx-r,0,2*r,H);ctx.fillRect(0,cy-r,W,2*r);
+    ctx.beginPath();
+    for(const edge of [-r,r]){ctx.moveTo(cx+edge,0);ctx.lineTo(cx+edge,H);ctx.moveTo(0,cy+edge);ctx.lineTo(W,cy+edge)}
+    ctx.stroke();
+   }else{
+    ctx.beginPath();ctx.arc(cx,cy,r,0,TAU);ctx.fill();ctx.stroke();
+    ctx.beginPath();ctx.arc(cx,cy,Math.max(2,r*Math.min(1,e.wind/1.05)),0,TAU);ctx.stroke();
+   }
+  }else{
+   // A small flashing diamond above the weapon marks the attack wind-up.
+   const py=y-(['boss','heartwood'].includes(e.kind)?101:67);
+   ctx.beginPath();ctx.moveTo(x,py-6);ctx.lineTo(x+4,py);ctx.lineTo(x,py+6);ctx.lineTo(x-4,py);ctx.closePath();
+   ctx.fillStyle='#25191f';ctx.fill();ctx.stroke();
+  }
+  ctx.restore();
+ }
+}
+function draw(path,x,y,w,h,alpha=1){let im=image(path);if(!im.complete||!im.naturalWidth)return false;const previousAlpha=ctx.globalAlpha;ctx.globalAlpha*=alpha;ctx.drawImage(characterFrame(path,im),Math.round(x),Math.round(y),Math.round(w||im.width),Math.round(h||im.height));ctx.globalAlpha=previousAlpha;return true}
 window.__aldrenDebug=()=>state?{x:state.x,y:state.y,zone:zoneAt(state),mode:state.mode}:null;
 const show=(el,yes)=>$(el).classList.toggle('hidden',!yes);
 const enemyInfo={skeleton:['Esqueleto',75,10,60,38,'#e5ca97',48,35],archer:['Arquero Esqueleto',54,8,48,42,'#ddae76',65,40],knight:['Caballero Caído',165,17,42,48,'#d6a877',105,85],boss:['REY ESQUELETO',850,27,46,65,'#bd74e0',320,400],rootbound:['Guardia de Raíz',115,15,52,45,'#79b99d',95,65],wraith:['Espectro',85,12,80,48,'#a48bf1',90,65],root_elite:['Guardián Élite',245,22,55,52,'#88e1ae',175,145],shade_elite:['Sombra Élite',180,19,75,48,'#bd95ec',175,145],heartwood:['CORAZÓN DE LA RAÍZ',920,34,44,73,'#64eab2',520,750]};
@@ -218,7 +337,7 @@ function drawWorld(){const s=state,pad=100,x0=cp.x,y0=cp.y,x1=x0+W,y1=y0+H;
  let all=[...elements.map(a=>({...a,type:'decor'})),...actors].sort((a,b)=>a.z-b.z);
  for(let o of all){if(o.type==='decor'){if(o.glow&&settings.quality)radGlow(o.x-cp.x+o.w*.5,o.y-cp.y+o.h*.4,65,o.glow,.21);draw(o.file,o.x-cp.x,o.y-cp.y,o.w,o.h)}else if(o.type==='hero'){drawHero()}else drawEnemy(o.data)}
  // Ground warning circles, projectiles, particles and damage numbers drawn above the map.
- for(let e of s.enemies)if(e.alive&&e.tele){let c=e.kind==='boss'?'#b76bdb':'#4ce1b7',sx=e.tele.x-cp.x,sy=e.tele.y-cp.y;ctx.save();ctx.strokeStyle=c;ctx.lineWidth=3;ctx.globalAlpha=.75+.2*Math.sin(e.t*12);ctx.setLineDash([6,5]);if(e.tele.kind==='cross'){ctx.beginPath();ctx.moveTo(sx-e.tele.range,sy);ctx.lineTo(sx+e.tele.range,sy);ctx.moveTo(sx,sy-e.tele.range);ctx.lineTo(sx,sy+e.tele.range);ctx.stroke()}else{ctx.beginPath();ctx.arc(sx,sy,e.tele.range,0,TAU);ctx.stroke()}ctx.restore()}
+ drawAttackWarnings(s);
  for(let p of s.projectiles){ctx.strokeStyle=p.color;ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(p.x-cp.x-p.vx*.035,p.y-cp.y-p.vy*.035);ctx.lineTo(p.x-cp.x,p.y-cp.y);ctx.stroke()}
  for(let p of s.particles){ctx.fillStyle=p.color;ctx.globalAlpha=cl(p.life/p.max,0,1);ctx.fillRect(p.x-cp.x,p.y-cp.y,p.size,p.size);ctx.globalAlpha=1}
  for(let n of s.numbers){ctx.font='bold 19px Georgia';ctx.textAlign='center';ctx.fillStyle='#050505';ctx.fillText(n.text,n.x-cp.x+2,n.y-cp.y+2);ctx.fillStyle=n.color;ctx.fillText(n.text,n.x-cp.x,n.y-cp.y)}
